@@ -348,6 +348,13 @@ def parse_options():
     )
 
     parser.add_option(
+        '-c', '--cpu',
+        dest    = 'cpu',
+        default = None,
+        help    = 'Filter image files by cpu type',
+    )
+
+    parser.add_option(
         '-C', '--config',
         dest    = 'config-file',
         default = DEFAULT_CONFIG_FILE,
@@ -355,11 +362,25 @@ def parse_options():
     )
 
     parser.add_option(
-        '-d', '--debug',
+        '-d', '--destination',
+        dest    = 'destination',
+        default = None,
+        help    = 'Destination directory to save image files to'
+    )
+
+    parser.add_option(
+        '-D', '--debug',
         dest    = 'debug',
         action  = 'store_true',
         default = False,
         help    = 'Print extra debugging information (implies --verbose)'
+    )
+
+    parser.add_option(
+        '-p', '--product',
+        dest    = 'product',
+        default = None,
+        help    = 'Filter image files by product',
     )
 
     parser.add_option(
@@ -368,6 +389,20 @@ def parse_options():
         action  = 'store_true',
         default = False,
         help    = 'Suppress output (negates --debug and --verbose)',
+    )
+
+    parser.add_option(
+        '-s', '--soc',
+        dest    = 'soc',
+        default = None,
+        help    = 'Filter image files by chipset',
+    )
+
+    parser.add_option(
+        '-v', '--product-version',
+        dest    = 'version',
+        default = None,
+        help    = 'Filter image files by version number',
     )
 
     # Parse the options
@@ -383,6 +418,7 @@ def parse_options():
     if OPTIONS['debug'] is True:
         OPTIONS['verbose'] = True
 
+    print(OPTIONS)
     # Read and parse the configuration file
     # configparser expects an INI file so we'll prepend '[DEFAULT]'
     # in order to convince configparser that everything is OK.
@@ -402,7 +438,8 @@ def parse_options():
 
     # Override the configuration options on the command-line
     for key in OPTIONS:
-        CONFIG[key] = OPTIONS[key]
+        if not OPTIONS[key] is None:
+            CONFIG[key] = OPTIONS[key]
 
 # main
 #   Primary application processing
