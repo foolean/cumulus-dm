@@ -98,6 +98,8 @@ def download_cumulus_image(image_json, jar):
 
     # Extract the name of the image file from the URL
     file_name = os.path.basename(urllib.parse.urlparse(image_url)[2])
+    if not CONFIG['destination'] is None:
+        file_name = os.path.join(CONFIG['destination'], file_name)
     debug('file_name:      "' + file_name + '"')
 
     # See if the file already exists
@@ -141,7 +143,6 @@ def verify_image_file(filename, image_json):
     checksum = get_file_checksum(filename, image_json['checksum_type']).lower()
     if checksum == image_json['checksum_value'].lower():
         return(1)
-    print(' Fail')
     return(0)
 
 # get_cumulus_image_json
@@ -418,7 +419,6 @@ def parse_options():
     if OPTIONS['debug'] is True:
         OPTIONS['verbose'] = True
 
-    print(OPTIONS)
     # Read and parse the configuration file
     # configparser expects an INI file so we'll prepend '[DEFAULT]'
     # in order to convince configparser that everything is OK.
@@ -440,6 +440,11 @@ def parse_options():
     for key in OPTIONS:
         if not OPTIONS[key] is None:
             CONFIG[key] = OPTIONS[key]
+
+    # Make sure the destination directory exists
+    if 'destination' in CONFIG:
+        if not os.path.isdir(CONFIG['destination']):
+            fatal('destination directory "%s" does not exist' % (CONFIG['destination']))
 
 # main
 #   Primary application processing
