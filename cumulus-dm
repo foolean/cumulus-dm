@@ -1,0 +1,429 @@
+#!/usr/bin/env python3
+#
+# FILENAME:     cumulus-dm - Cumulus "download manager"
+# AUTHOR:       Bennett Samowich <bennett@foolean.org>
+# DATE:         2019-01-07
+#
+# DESCRIPTION:
+#   Cumulus "download manager" is a tool that can be used to automate the
+#   downloading of Cumulus OS images.  The primary use is to keep a local
+#   PXE server up to date with the latest image.
+#
+#   Note:
+#   This tool requires Cumulus credentials, which can be obtained by
+#   completing the form at https://cumulusnetworks.com/accounts/signup/
+#
+###############################################################################
+#
+# Copyright 2019 Bennett Samowich <bennett@foolean.org>
+#
+# cumulus-dm is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# cumulus-dm is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with cumulus-dm.  If not, see <http://www.gnu.org/licenses/>.
+#
+###############################################################################
+
+from bs4       import BeautifulSoup
+from optparse  import OptionParser
+import configparser
+import hashlib
+import json
+import os
+import requests
+import signal
+import sys
+import syslog
+import urllib
+
+# Our version
+VERSION = '1.0.0'
+
+# Default configuration file
+DEFAULT_CONFIG_FILE = 'cumulus-dm.conf'
+
+# Default User-Agent
+DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:45.0) Gecko/20100101 Firefox/45.0'
+
+# Lockfile for preventing parallel instantiations
+LOCKFILE = '/var/lock/cumulus-dm.lock'
+
+# download_cumulus_image
+#   Download the Cumulus image file
+#
+#   Arguments:
+#       image_json: JSON data for the image to be downloaded
+#       jar:        authentication cookie jar
+def download_cumulus_image(image_json, jar):
+
+    # Assemble the URL used to get the actual image download url
+    url = 'https://cumulusnetworks.com' + image_json['download_url']
+    debug('interim_url:    "' + url + '"')
+
+    # Assemble the headers
+    headers = {
+        'accept': 'application/json, text/javascript, */*; q=0.01',
+        'accept-encoding': 'gzip, deflate, br',
+        'accept-language': 'en-US, en;q=0.5',
+        'cache-control': 'no-cache',
+        'connection': 'keepalive',
+        'dnt': '1',
+        'host': 'cumulusnetworks.com',
+        'pragma': 'no-cache',
+        'referer': 'https://cumulusnetworks.com/downloads/',
+        'user-agent': CONFIG['user_agent'],
+        'x-requested-with': 'XMLHttpRequest',
+    }
+
+    # Get the download URL from the interim URL
+    r = requests.get(url, headers=headers, cookies=jar)
+    soup = BeautifulSoup(r.text, 'html.parser')
+    for item in soup.text.split("\n"):
+        if "downloadUrl = " in item:
+            download_url = 'https://cumulusnetworks.com' + item.split('"')[1]
+            debug('download_url:   "' + download_url + '"')
+
+    # Get the actual image URL from the download_url's redirect
+    r = requests.get(download_url, headers=headers, cookies=jar, allow_redirects=False)
+    image_url = r.headers['location']
+    debug('image_url:      "' + image_url + '"')
+
+    # Extract the name of the image file from the URL
+    file_name = os.path.basename(urllib.parse.urlparse(image_url)[2])
+    debug('file_name:      "' + file_name + '"')
+
+    # See if the file already exists
+    if os.path.isfile(file_name):
+        notice(file_name + ' already exists, skipping')
+    else:
+        # Get the file's size
+        response = requests.get(image_url, stream=True)
+        file_size = int(response.headers['content-length'])
+        debug('file_size:      "%i"' % (file_size))
+
+        # Download the image file
+        print("Downloading: %s Bytes: %s ..." % (file_name, file_size), end="")
+        file_size_dl = 0
+        handle = open(file_name, 'wb')
+        for chunk in response.iter_content(chunk_size=8192):
+            if chunk:
+                file_size_dl += len(chunk)
+                handle.write(chunk)
+                pct = ( file_size_dl / file_size ) * 100
+                status = r"%10d [%6.2f%%]" % (file_size_dl, pct)
+                status = status + chr(8)*(len(status))
+                print(status, end="")
+
+        handle.close()
+        print()
+
+    # Verify the file's checksum
+    if verify_image_file(file_name, image_json):
+        notice('valid checksum for %s' % (file_name))
+    else:
+        error('invalid checksum for %s' % (file_name))
+
+# verify_image_file
+#   Verify a Cumulus image file against it's cryptographic hash
+#
+#   Arguments:
+#       filename:   full path to the file to be verified
+#       image_json: JSON data containing the checksum type and value
+def verify_image_file(filename, image_json):
+    checksum = get_file_checksum(filename, image_json['checksum_type']).lower()
+    if checksum == image_json['checksum_value'].lower():
+        return(1)
+    print(' Fail')
+    return(0)
+
+# get_cumulus_image_json
+#   Get the JSON data for the available Cumulus images
+#
+#   Arguments:
+#       jar:  authentication cookie jar
+def get_cumulus_image_json(jar):
+    # Assemble the headers to be used
+    headers = {
+        'accept': 'application/json, text/javascript, */*; q=0.01',
+        'accept-encoding': 'gzip, deflate, br',
+        'accept-language': 'en-US, en;q=0.5',
+        'cache-control': 'no-cache',
+        'connection': 'keepalive',
+        'dnt': '1',
+        'host': 'cumulusnetworks.com',
+        'pragma': 'no-cache',
+        'referer': 'https://cumulusnetworks.com/downloads/',
+        'user-agent': CONFIG['user_agent'],
+        'x-requested-with': 'XMLHttpRequest',
+    }
+
+    # Assemble the API url
+    api_url = 'https://cumulusnetworks.com/downloads/api/v1/downloads/?format=json'
+    if 'product' in CONFIG:
+        api_url = api_url + '&product=' + CONFIG['product']
+    else:
+        api_url = api_url + '&product=Cumulus Linux'
+    if 'cpu' in CONFIG:
+        api_url = api_url + '&cpu=' + CONFIG['cpu']
+    if 'version' in CONFIG:
+        api_url = api_url + '&version=' + CONFIG['version']
+    if 'soc' in CONFIG:
+        api_url = api_url + '&soc=' + CONFIG['soc']
+
+    # Get the JSON data for the Cumulus images
+    response = requests.get(api_url, headers=headers, cookies=jar)
+
+    # Return the JSON data
+    return(json.loads(response.text)['results'])
+
+# get_cumulus_auth_cookie
+#   Log into the Cumulus website and obtain the
+#   authentication cookie.  This cookie will be
+#   used for all subsequent communication.
+def get_cumulus_auth_cookie():
+
+    # Assemble the headers
+    headers = {
+        'accept': 'text/html,application/xhtml+xml,application/xml;q=0.0;*/*;q=0.8',
+        'accept-encoding': 'gzip, deflate, br',
+        'accept-language': 'en-US, en;q=0.5',
+        'cache-control': 'no-cache',
+        'connection': 'keepalive',
+        'dnt': '1',
+        'host': 'cumulusnetworks.com',
+        'pragma': 'no-cache',
+        'referer': 'https://cumulusnetworks.com/accounts/login/?next=/downloads/',
+        'user-agent': CONFIG['user_agent'],
+    }
+
+    # Get the intial login form
+    response = requests.get('https://cumulusnetworks.com/accounts/login/?next=/downloads/', headers = headers)
+
+    # Get the cookies from the response
+    jar = response.cookies
+
+    # Extract the CSRF middleware token
+    soup = BeautifulSoup(response.text, 'html.parser')
+    form = soup.find('form')
+    token = form.find('input', {'name':'csrfmiddlewaretoken'})['value']
+
+    # Assemble the URL to post our credentials to
+    login_url = 'https://cumulusnetworks.com' + form.get('action')
+
+    # Assemble the form data to be submitted
+    form_data = {
+        'csrfmiddlewaretoken': token,
+        'next': '/downloads/',
+        'login': CONFIG['login'],
+        'password': CONFIG['password'],
+    }
+
+    # Submit the login form
+    req = requests.Request('POST', login_url, headers=headers, data=form_data, cookies=jar).prepare()
+    ses = requests.Session()
+
+    # .. and get the resulting authentication cookie
+    response = ses.send(req)
+    if not 'sessionid' in ses.cookies:
+        fatal('Unable to authenticate to "%s" as "%s"' % (login_url, CONFIG['login']))
+
+    # Add the dbpinned and sessionid cookies to the jar
+    jar.set('dbpinned',  ses.cookies['dbpinned'],  domain='cumulusnetworks.com', path='/')
+    jar.set('sessionid', ses.cookies['sessionid'], domain='cumulusnetworks.com', path='/')
+
+    # Return the authentication cookie
+    return(jar)
+
+# get_file_checksum
+#    Compute the checksum hash of a file
+#
+#    Arguments:
+#        filename:  full path to the file to be checksumed
+#        algorithm: checksum algorithm to use (e.g. sha256)
+def get_file_checksum( filename, algorithm ):
+
+    # Create the desired hash object
+    if algorithm not in hashlib.algorithms_available:
+        error('unknown algorithm "' + algorithm + '"')
+        return None
+    checksum = hashlib.new(algorithm)
+
+    # Create the hash f the file
+    with open(filename, "rb") as fh:
+        for blocks in iter(lambda: fh.read(4096), b""):
+            checksum.update(blocks)
+
+    # Return the hex checksum
+    return(checksum.hexdigest().lower())
+
+# debug
+#   Helper function to log/print debugging messages
+#
+#   Arguments:
+#       string: string to be logged and printed
+def debug(string):
+    if CONFIG['debug'] is True:
+        logprint("debug: %s" % (string))
+
+# error
+#   Helper function to log/print non-fatal error messages
+#
+#   Arguments:
+#       string: string to be logged and printed
+def error(string):
+    logprint("error: %s" % (string))
+
+# fatal
+#   Helper function to log/print fatal error messages and exit
+#
+#   Arguments:
+#       string: string to be logged and printed
+def fatal(string):
+    logprint("fatal: %s" % (string))
+    sys.exit(1)
+
+# notice
+#   Helper function to log/print general notice messages
+#
+#   Arguments:
+#       string: string to be logged and printed
+def notice(string):
+    if CONFIG['quiet'] is False:
+        logprint("notice: %s" % (string))
+
+# warning
+#   Helper function to log/print warning messages
+#
+#   Arguments:
+#       string: string to be logged and printed
+def warning(string):
+    logprint("warning: %s" % (string))
+
+# logprint
+#   Helper function to log and print messages.  Generally
+#   this will be called by the functions debug, error, fatal,
+#   notice, and warning.
+#
+#   Arguments:
+#       string: string to be logged and printed
+def logprint(string):
+    syslog.syslog(string)
+    print(string)
+
+# signal_handler
+#   Helper function to catch SIGINT
+def signal_handler(signal, frame):
+    notice('caught sigint')
+    clean_exit()
+
+# clean_exit
+#   Helper function to clean up and exit gracefully
+def clean_exit():
+    if os.path.exists(LOCKFILE):
+        notice('cleaning up "%s"' % (LOCKFILE))
+        os.remove(LOCKFILE)
+    sys.exit(0)
+
+# parse_options
+#   Parse the command-line options and the configuration file
+def parse_options():
+    usage = "usage: %prog [options]"
+
+    parser = OptionParser(usage=usage, version="%prog " + VERSION)
+    parser.disable_interspersed_args()
+
+    parser.add_option(
+        '-a', '--user-agent',
+        dest    = 'user_agent',
+        default = DEFAULT_USER_AGENT,
+        help    = 'Specify the User-Agent for the web requests [default=%default]',
+    )
+
+    parser.add_option(
+        '-C', '--config',
+        dest    = 'config-file',
+        default = DEFAULT_CONFIG_FILE,
+        help    = 'Specify an alternate configuration file [default=%default]'
+    )
+
+    parser.add_option(
+        '-d', '--debug',
+        dest    = 'debug',
+        action  = 'store_true',
+        default = False,
+        help    = 'Print extra debugging information (implies --verbose)'
+    )
+
+    parser.add_option(
+        '-q', '--quiet',
+        dest    = 'quiet',
+        action  = 'store_true',
+        default = False,
+        help    = 'Suppress output (negates --debug and --verbose)',
+    )
+
+    # Parse the options
+    (opts, args) = parser.parse_args()
+    OPTIONS = vars(opts)
+
+    # --quiet negates --debug
+    if OPTIONS['quiet'] is True:
+        OPTIONS['debug'] = False
+        OPTIONS['verbose'] = False
+
+    # --debug implies --verbose
+    if OPTIONS['debug'] is True:
+        OPTIONS['verbose'] = True
+
+    # Read and parse the configuration file
+    # configparser expects an INI file so we'll prepend '[DEFAULT]'
+    # in order to convince configparser that everything is OK.
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        with open(OPTIONS['config-file']) as fh:
+            config.read_string("[DEFAULT]\n" + fh.read())
+    except:
+        fatal("unable to open '%s'" % (OPTIONS['config-file']))
+        sys.exit(1) # should never get here
+
+    # Convert the config object into a dictionary
+    global CONFIG
+    CONFIG = {}
+    for (var, val) in config.items('DEFAULT'):
+        CONFIG[var] = val
+
+    # Override the configuration options on the command-line
+    for key in OPTIONS:
+        CONFIG[key] = OPTIONS[key]
+
+# main
+#   Primary application processing
+def main():
+    signal.signal(signal.SIGINT, signal_handler)
+
+    syslog.openlog(os.path.basename(sys.argv[0]),logoption=syslog.LOG_PID)
+    parse_options() # Load our configuration options
+
+    # Get the authentication cookie
+    cookie_jar = get_cumulus_auth_cookie()
+
+    # Get the JSON data for the Cumulus images
+    images_json = get_cumulus_image_json(cookie_jar)
+
+    # Download the cumulus image
+    for image_json in images_json:
+        download_cumulus_image(image_json, cookie_jar)
+
+if __name__ == '__main__':
+    try:
+        main()
+    finally:
+        clean_exit()
