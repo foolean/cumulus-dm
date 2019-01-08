@@ -7,6 +7,23 @@ cases such as keeping a PXE server up to date with the most current
 image files.
 
 
+## Dependencies
+
+### debian/ubuntu
+
+    python-configparser
+    python3-bs4
+    python-requests
+    python3-requests
+    python3-urllib3
+
+### CentOS/RedHat
+
+    python-configparser
+    python-beautifulsoup4
+    python-requests
+    python-urllib3
+
 ## Installation
 
 Run the following to install cumulus-dm:
