@@ -33,7 +33,7 @@
 ###############################################################################
 
 from bs4       import BeautifulSoup
-from optparse  import OptionParser
+from optparse  import OptionParser, SUPPRESS_HELP
 import configparser
 import hashlib
 import json
@@ -346,13 +346,15 @@ def parse_options():
         '-a', '--user-agent',
         dest    = 'user_agent',
         default = DEFAULT_USER_AGENT,
-        help    = 'Specify the User-Agent for the web requests [default=%default]',
+        help    = SUPPRESS_HELP,
     )
 
     parser.add_option(
         '-c', '--cpu',
         dest    = 'cpu',
         default = None,
+        type    = 'choice',
+        choices = [ 'x86', 'PowerPC', 'ARM' ],
         help    = 'Filter image files by cpu type',
     )
 
@@ -382,6 +384,8 @@ def parse_options():
         '-p', '--product',
         dest    = 'product',
         default = None,
+        type    = 'choice',
+        choices = [ 'Cumulus Linux', 'NetQ Virtual', 'Cumulus VX' ],
         help    = 'Filter image files by product',
     )
 
@@ -397,6 +401,8 @@ def parse_options():
         '-s', '--soc',
         dest    = 'soc',
         default = None,
+        type    = 'choice',
+        choices = [ 'Broadcom', 'Mellanox' ],
         help    = 'Filter image files by chipset',
     )
 
