@@ -38,6 +38,7 @@ import configparser
 import hashlib
 import json
 import os
+import platform
 import requests
 import signal
 import sys
@@ -51,7 +52,7 @@ VERSION = '1.0.0'
 DEFAULT_CONFIG_FILE = 'cumulus-dm.conf'
 
 # Default User-Agent
-DEFAULT_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:45.0) Gecko/20100101 Firefox/45.0'
+DEFAULT_USER_AGENT = 'cumulus-dm/%s (%s) python/%s' % (VERSION, platform.platform(), platform.python_version())
 
 # Lockfile for preventing parallel instantiations
 LOCKFILE = '/var/lock/cumulus-dm.lock'
