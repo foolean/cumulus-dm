@@ -112,10 +112,15 @@ def download_cumulus_image(image_json, jar):
         file_size = int(response.headers['content-length'])
         debug('file_size:      "%i"' % (file_size))
 
+        # Open the destination file
+        try:
+            handle = open(file_name, 'wb')
+        except OSError as err:
+            fatal('unable to open "%s": %s' % (file_name, err))
+
         # Download the image file
-        print("Downloading: %s Bytes: %s ..." % (file_name, file_size), end="")
         file_size_dl = 0
-        handle = open(file_name, 'wb')
+        print("Downloading: %s Bytes: %s ..." % (file_name, file_size), end="")
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 file_size_dl += len(chunk)
@@ -361,7 +366,7 @@ def parse_options():
     parser.add_option(
         '-C', '--config',
         dest    = 'config-file',
-        default = DEFAULT_CONFIG_FILE,
+        default = None,
         help    = 'Specify an alternate configuration file [default=%default]'
     )
 
@@ -426,6 +431,15 @@ def parse_options():
     if OPTIONS['debug'] is True:
         OPTIONS['verbose'] = True
 
+    # Determine where the configuration file is
+    if OPTIONS['config-file'] is None:
+        if os.path.isfile('/etc/' + DEFAULT_CONFIG_FILE):
+            OPTIONS['config-file'] = '/etc/' + DEFAULT_CONFIG_FILE
+        elif os.path.isfile('/usr/local/etc/' + DEFAULT_CONFIG_FILE):
+            OPTIONS['config-file'] = '/usr/local/etc/' + DEFAULT_CONFIG_FILE
+        else:
+            fatal('no configuration file found')
+
     # Read and parse the configuration file
     # configparser expects an INI file so we'll prepend '[DEFAULT]'
     # in order to convince configparser that everything is OK.
@@ -433,8 +447,9 @@ def parse_options():
     try:
         with open(OPTIONS['config-file']) as fh:
             config.read_string("[DEFAULT]\n" + fh.read())
-    except:
-        fatal("unable to open '%s'" % (OPTIONS['config-file']))
+            fh.close()
+    except OSError as err:
+        fatal("unable to open '%s': %s" % (OPTIONS['config-file'], err))
         sys.exit(1) # should never get here
 
     # Convert the config object into a dictionary
