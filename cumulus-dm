@@ -32,8 +32,9 @@
 #
 ###############################################################################
 
-from bs4       import BeautifulSoup
-from optparse  import OptionParser, SUPPRESS_HELP
+from bs4           import BeautifulSoup
+from optparse      import OptionParser, SUPPRESS_HELP
+from pkg_resources import parse_version
 import configparser
 import hashlib
 import json
@@ -468,6 +469,10 @@ def parse_options():
         if not os.path.isdir(CONFIG['destination']):
             fatal('destination directory "%s" does not exist' % (CONFIG['destination']))
 
+    # Make sure the minimum version exists
+    if not 'min_version' in CONFIG:
+        CONFIG['min_version'] = '0'
+
 # main
 #   Primary application processing
 def main():
@@ -484,7 +489,11 @@ def main():
 
     # Download the cumulus image
     for image_json in images_json:
-        download_cumulus_image(image_json, cookie_jar)
+        if parse_version(image_json['version']) >= parse_version(CONFIG['min_version']):
+            download_cumulus_image(image_json, cookie_jar)
+        else:
+            debug('version "%s" outside of requested range, skipping' % (image_json['version']))
+
 
 if __name__ == '__main__':
     try:
