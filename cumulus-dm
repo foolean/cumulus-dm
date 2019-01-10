@@ -468,6 +468,8 @@ def parse_options():
     if 'destination' in CONFIG:
         if not os.path.isdir(CONFIG['destination']):
             fatal('destination directory "%s" does not exist' % (CONFIG['destination']))
+    else:
+        fatal('no destination directory specified')
 
     # Make sure the minimum version exists
     if not 'min_version' in CONFIG:
