@@ -32,19 +32,22 @@
 #
 ###############################################################################
 
-from bs4           import BeautifulSoup
-from optparse      import OptionParser, SUPPRESS_HELP
-from pkg_resources import parse_version
+# Import standard libraries
+import argparse
 import configparser
 import hashlib
 import json
 import os
 import platform
-import requests
 import signal
 import sys
 import syslog
 import urllib
+
+# Import third-party libraries
+import requests
+from bs4           import BeautifulSoup
+from pkg_resources import parse_version
 
 # Our version
 VERSION = '1.0.0'
@@ -57,6 +60,10 @@ DEFAULT_USER_AGENT = 'cumulus-dm/%s (%s) python/%s' % (VERSION, platform.platfor
 
 # Lockfile for preventing parallel instantiations
 LOCKFILE = '/var/lock/cumulus-dm.lock'
+
+# Placeholders for command-line and configuration file options
+OPTIONS = {}
+CONFIG = {}
 
 # download_cumulus_image
 #   Download the Cumulus image file
@@ -86,21 +93,21 @@ def download_cumulus_image(image_json, jar):
     }
 
     # Get the download URL from the interim URL
-    r = requests.get(url, headers=headers, cookies=jar)
-    soup = BeautifulSoup(r.text, 'html.parser')
+    response = requests.get(url, headers=headers, cookies=jar)
+    soup = BeautifulSoup(response.text, 'html.parser')
     for item in soup.text.split("\n"):
         if "downloadUrl = " in item:
             download_url = 'https://cumulusnetworks.com' + item.split('"')[1]
             debug('download_url:   "' + download_url + '"')
 
     # Get the actual image URL from the download_url's redirect
-    r = requests.get(download_url, headers=headers, cookies=jar, allow_redirects=False)
-    image_url = r.headers['location']
+    response = requests.get(download_url, headers=headers, cookies=jar, allow_redirects=False)
+    image_url = response.headers['location']
     debug('image_url:      "' + image_url + '"')
 
     # Extract the name of the image file from the URL
     file_name = os.path.basename(urllib.parse.urlparse(image_url)[2])
-    if not CONFIG['destination'] is None:
+    if CONFIG['destination'] is not None:
         file_name = os.path.join(CONFIG['destination'], file_name)
     debug('file_name:      "' + file_name + '"')
 
@@ -126,7 +133,7 @@ def download_cumulus_image(image_json, jar):
             if chunk:
                 file_size_dl += len(chunk)
                 handle.write(chunk)
-                pct = ( file_size_dl / file_size ) * 100
+                pct = (file_size_dl / file_size) * 100
                 status = r"%10d [%6.2f%%]" % (file_size_dl, pct)
                 status = status + chr(8)*(len(status))
                 print(status, end="")
@@ -140,6 +147,7 @@ def download_cumulus_image(image_json, jar):
     else:
         error('invalid checksum for %s' % (file_name))
 
+
 # verify_image_file
 #   Verify a Cumulus image file against it's cryptographic hash
 #
@@ -149,8 +157,9 @@ def download_cumulus_image(image_json, jar):
 def verify_image_file(filename, image_json):
     checksum = get_file_checksum(filename, image_json['checksum_type']).lower()
     if checksum == image_json['checksum_value'].lower():
-        return(1)
-    return(0)
+        return 1
+    return 0
+
 
 # get_cumulus_image_json
 #   Get the JSON data for the available Cumulus images
@@ -190,7 +199,8 @@ def get_cumulus_image_json(jar):
     response = requests.get(api_url, headers=headers, cookies=jar)
 
     # Return the JSON data
-    return(json.loads(response.text)['results'])
+    return json.loads(response.text)['results']
+
 
 # get_cumulus_auth_cookie
 #   Log into the Cumulus website and obtain the
@@ -213,7 +223,7 @@ def get_cumulus_auth_cookie():
     }
 
     # Get the intial login form
-    response = requests.get('https://cumulusnetworks.com/accounts/login/?next=/downloads/', headers = headers)
+    response = requests.get('https://cumulusnetworks.com/accounts/login/?next=/downloads/', headers=headers)
 
     # Get the cookies from the response
     jar = response.cookies
@@ -240,15 +250,16 @@ def get_cumulus_auth_cookie():
 
     # .. and get the resulting authentication cookie
     response = ses.send(req)
-    if not 'sessionid' in ses.cookies:
+    if 'sessionid' not in ses.cookies:
         fatal('Unable to authenticate to "%s" as "%s"' % (login_url, CONFIG['login']))
 
     # Add the dbpinned and sessionid cookies to the jar
-    jar.set('dbpinned',  ses.cookies['dbpinned'],  domain='cumulusnetworks.com', path='/')
+    jar.set('dbpinned', ses.cookies['dbpinned'], domain='cumulusnetworks.com', path='/')
     jar.set('sessionid', ses.cookies['sessionid'], domain='cumulusnetworks.com', path='/')
 
     # Return the authentication cookie
-    return(jar)
+    return jar
+
 
 # get_file_checksum
 #    Compute the checksum hash of a file
@@ -256,7 +267,7 @@ def get_cumulus_auth_cookie():
 #    Arguments:
 #        filename:  full path to the file to be checksumed
 #        algorithm: checksum algorithm to use (e.g. sha256)
-def get_file_checksum( filename, algorithm ):
+def get_file_checksum(filename, algorithm):
 
     # Create the desired hash object
     if algorithm not in hashlib.algorithms_available:
@@ -265,12 +276,14 @@ def get_file_checksum( filename, algorithm ):
     checksum = hashlib.new(algorithm)
 
     # Create the hash f the file
-    with open(filename, "rb") as fh:
-        for blocks in iter(lambda: fh.read(4096), b""):
+    with open(filename, "rb") as handle:
+        for blocks in iter(lambda: handle.read(4096), b""):
             checksum.update(blocks)
+        handle.close()
 
     # Return the hex checksum
-    return(checksum.hexdigest().lower())
+    return checksum.hexdigest().lower()
+
 
 # debug
 #   Helper function to log/print debugging messages
@@ -281,6 +294,7 @@ def debug(string):
     if CONFIG['debug'] is True:
         logprint("debug: %s" % (string))
 
+
 # error
 #   Helper function to log/print non-fatal error messages
 #
@@ -288,6 +302,7 @@ def debug(string):
 #       string: string to be logged and printed
 def error(string):
     logprint("error: %s" % (string))
+
 
 # fatal
 #   Helper function to log/print fatal error messages and exit
@@ -298,6 +313,7 @@ def fatal(string):
     logprint("fatal: %s" % (string))
     sys.exit(1)
 
+
 # notice
 #   Helper function to log/print general notice messages
 #
@@ -307,6 +323,7 @@ def notice(string):
     if CONFIG['quiet'] is False:
         logprint("notice: %s" % (string))
 
+
 # warning
 #   Helper function to log/print warning messages
 #
@@ -314,6 +331,7 @@ def notice(string):
 #       string: string to be logged and printed
 def warning(string):
     logprint("warning: %s" % (string))
+
 
 # logprint
 #   Helper function to log and print messages.  Generally
@@ -326,10 +344,12 @@ def logprint(string):
     syslog.syslog(string)
     print(string)
 
+
 # signal_handler
 #   Helper function to catch SIGINT
-def signal_handler(signal, frame):
-    notice('caught sigint')
+def signal_handler(signalnum, frame):
+    del frame
+    notice('caught signal "%s"' % (signal.Signals(signalnum).name))
     clean_exit()
 
 # clean_exit
@@ -343,85 +363,78 @@ def clean_exit():
 # parse_options
 #   Parse the command-line options and the configuration file
 def parse_options():
-    usage = "usage: %prog [options]"
-
-    parser = OptionParser(usage=usage, version="%prog " + VERSION)
-    parser.disable_interspersed_args()
-
-    parser.add_option(
+    parser = argparse.ArgumentParser(description='Download Cumulus image files')
+    parser.add_argument(
         '-a', '--user-agent',
-        dest    = 'user_agent',
-        default = DEFAULT_USER_AGENT,
-        help    = SUPPRESS_HELP,
+        dest='user_agent',
+        default=DEFAULT_USER_AGENT,
+        help=argparse.SUPPRESS
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-c', '--cpu',
-        dest    = 'cpu',
-        default = None,
-        type    = 'choice',
-        choices = [ 'x86', 'PowerPC', 'ARM' ],
-        help    = 'Filter image files by cpu type',
+        dest='cpu',
+        default=None,
+        choices=['x86', 'PowerPC', 'ARM'],
+        help='Filter image files by cpu type',
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-C', '--config',
-        dest    = 'config-file',
-        default = None,
-        help    = 'Specify an alternate configuration file [default=%default]'
+        dest='config-file',
+        default=None,
+        help='Specify an alternate configuration file [default: %(default)s]'
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-d', '--destination',
-        dest    = 'destination',
-        default = None,
-        help    = 'Destination directory to save image files to'
+        dest='destination',
+        default=None,
+        help='Destination directory to save image files to'
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-D', '--debug',
-        dest    = 'debug',
-        action  = 'store_true',
-        default = False,
-        help    = 'Print extra debugging information (implies --verbose)'
+        dest='debug',
+        action='store_true',
+        default=False,
+        help='Print extra debugging information (implies --verbose)'
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-p', '--product',
-        dest    = 'product',
-        default = None,
-        type    = 'choice',
-        choices = [ 'Cumulus Linux', 'NetQ Virtual', 'Cumulus VX' ],
-        help    = 'Filter image files by product',
+        dest='product',
+        default=None,
+        choices=['Cumulus Linux', 'NetQ Virtual', 'Cumulus VX'],
+        help='Filter image files by product',
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-q', '--quiet',
-        dest    = 'quiet',
-        action  = 'store_true',
-        default = False,
-        help    = 'Suppress output (negates --debug and --verbose)',
+        dest='quiet',
+        action='store_true',
+        default=False,
+        help='Suppress output (negates --debug and --verbose)',
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-s', '--soc',
-        dest    = 'soc',
-        default = None,
-        type    = 'choice',
-        choices = [ 'Broadcom', 'Mellanox' ],
-        help    = 'Filter image files by chipset',
+        dest='soc',
+        default=None,
+        choices=['Broadcom', 'Mellanox'],
+        help='Filter image files by chipset',
     )
 
-    parser.add_option(
+    parser.add_argument(
         '-v', '--product-version',
-        dest    = 'version',
-        default = None,
-        help    = 'Filter image files by version number',
+        dest='version',
+        default=None,
+        help='Filter image files by version number',
     )
 
-    # Parse the options
-    (opts, args) = parser.parse_args()
-    OPTIONS = vars(opts)
+	# Parse the options
+    args = parser.parse_args()
+    OPTIONS.update(vars(args))
 
     # --quiet negates --debug
     if OPTIONS['quiet'] is True:
@@ -441,27 +454,29 @@ def parse_options():
         else:
             fatal('no configuration file found')
 
+
+# load_configuration_file
+#   Load options from the configuration file
+def load_configuration_file():
     # Read and parse the configuration file
     # configparser expects an INI file so we'll prepend '[DEFAULT]'
     # in order to convince configparser that everything is OK.
     config = configparser.ConfigParser(interpolation=None)
     try:
-        with open(OPTIONS['config-file']) as fh:
-            config.read_string("[DEFAULT]\n" + fh.read())
-            fh.close()
+        with open(OPTIONS['config-file']) as handle:
+            config.read_string("[DEFAULT]\n" + handle.read())
+            handle.close()
     except OSError as err:
         fatal("unable to open '%s': %s" % (OPTIONS['config-file'], err))
         sys.exit(1) # should never get here
 
     # Convert the config object into a dictionary
-    global CONFIG
-    CONFIG = {}
     for (var, val) in config.items('DEFAULT'):
         CONFIG[var] = val
 
     # Override the configuration options on the command-line
     for key in OPTIONS:
-        if not OPTIONS[key] is None:
+        if OPTIONS[key] is not None:
             CONFIG[key] = OPTIONS[key]
 
     # Make sure the destination directory exists
@@ -472,16 +487,19 @@ def parse_options():
         fatal('no destination directory specified')
 
     # Make sure the minimum version exists
-    if not 'min_version' in CONFIG:
+    if 'min_version' not in CONFIG:
         CONFIG['min_version'] = '0'
+
 
 # main
 #   Primary application processing
 def main():
     signal.signal(signal.SIGINT, signal_handler)
+    syslog.openlog(os.path.basename(sys.argv[0]), logoption=syslog.LOG_PID)
 
-    syslog.openlog(os.path.basename(sys.argv[0]),logoption=syslog.LOG_PID)
-    parse_options() # Load our configuration options
+    # Load our configuration options and command-line arguments
+    parse_options()
+    load_configuration_file()
 
     # Get the authentication cookie
     cookie_jar = get_cumulus_auth_cookie()
