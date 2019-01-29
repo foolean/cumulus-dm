@@ -46,22 +46,29 @@ the following can be used to uninstall cumulus-dm:
 
 ## Usage
 
-	Usage: cumulus-dm [options]
+	usage: cumulus-dm [-h] [-c {x86,PowerPC,ARM}] [-C CONFIG-FILE]
+                  	[-d DESTINATION] [-D]
+                  	[-p {Cumulus Linux,NetQ Virtual,Cumulus VX}] [-q]
+                  	[-s {Broadcom,Mellanox}] [-v VERSION]
 
-	Options:
-  	--version               show program's version number and exit
-  	-h, --help              show this help message and exit
-  	-c CPU, --cpu=CPU       Filter image files by cpu type
-  	-C CONFIG-FILE, --config=CONFIG-FILE
-                        	Specify an alternate configuration file [default=none]
-  	-d DESTINATION, --destination=DESTINATION
+	Download Cumulus image files
+
+	optional arguments:
+  	-h, --help            show this help message and exit
+  	-c {x86,PowerPC,ARM}, --cpu {x86,PowerPC,ARM}
+                        	Filter image files by cpu type
+  	-C CONFIG-FILE, --config CONFIG-FILE
+                        	Specify an alternate configuration file [default:
+                        	None]
+  	-d DESTINATION, --destination DESTINATION
                         	Destination directory to save image files to
-  	-D, --debug             Print extra debugging information (implies --verbose)
-  	-p PRODUCT, --product=PRODUCT
+  	-D, --debug           Print extra debugging information (implies --verbose)
+  	-p {Cumulus Linux,NetQ Virtual,Cumulus VX}, --product {Cumulus Linux,NetQ Virtual,Cumulus VX}
                         	Filter image files by product
-  	-q, --quiet             Suppress output (negates --debug and --verbose)
-  	-s SOC, --soc=SOC       Filter image files by chipset
-  	-v VERSION, --product-version=VERSION
+  	-q, --quiet           Suppress output (negates --debug and --verbose)
+  	-s {Broadcom,Mellanox}, --soc {Broadcom,Mellanox}
+                        	Filter image files by chipset
+  	-v VERSION, --product-version VERSION
                         	Filter image files by version number
 
     Note:
