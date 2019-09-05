@@ -112,9 +112,15 @@ def download_cumulus_image(image_json, jar):
     debug('file_name:      "' + file_name + '"')
 
     # See if the file already exists
+    file_exists = False
     if os.path.isfile(file_name):
-        notice(file_name + ' already exists, skipping')
-    else:
+        if verify_image_file(file_name, image_json):
+            notice(file_name + ' already exists, skipping')
+            file_exists = True
+        else:
+            notice(file_name + ' exists but has bad checksum, re-downloading')
+
+    if not file_exists:
         # Get the file's size
         response = requests.get(image_url, stream=True)
         file_size = int(response.headers['content-length'])
@@ -132,20 +138,24 @@ def download_cumulus_image(image_json, jar):
         for chunk in response.iter_content(chunk_size=8192):
             if chunk:
                 file_size_dl += len(chunk)
-                handle.write(chunk)
-                pct = (file_size_dl / file_size) * 100
-                status = r"%10d [%6.2f%%]" % (file_size_dl, pct)
-                status = status + chr(8)*(len(status))
-                print(status, end="")
+                try:
+                    handle.write(chunk)
+                    pct = (file_size_dl / file_size) * 100
+                    status = r"%10d [%6.2f%%]" % (file_size_dl, pct)
+                    status = status + chr(8)*(len(status))
+                    print(status, end="")
+                except OSError as err:
+                    print()
+                    fatal('unable to write to "%s": %s' % (file_name, err))
 
         handle.close()
         print()
 
-    # Verify the file's checksum
-    if verify_image_file(file_name, image_json):
-        notice('valid checksum for %s' % (file_name))
-    else:
-        error('invalid checksum for %s' % (file_name))
+        # Verify the file's checksum
+        if verify_image_file(file_name, image_json):
+            notice('valid checksum for %s' % (file_name))
+        else:
+            error('invalid checksum for %s' % (file_name))
 
 
 # verify_image_file
